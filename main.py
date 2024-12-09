@@ -1,3 +1,4 @@
+import json
 import os
 import io
 import logging
@@ -53,10 +54,10 @@ async def all_podcasts():
                     
                     CASE 
                         WHEN array_agg(t.tag)::text = '{NULL}' THEN null
-                        ELSE string_agg(t.tag, ', ')
+                        ELSE string_agg(t.tag, ',')
                     END tags
                 FROM podcasts
-                left join tags t on podcasts.id = t.podcast_id
+                left join podcast_tags t on podcasts.id = t.podcast_id
                 GROUP BY podcasts.id, title, description, duration, likes, auditions
                 '''
             )
@@ -181,7 +182,63 @@ async def increase_counter(podcast_id: int, counter: Literal['likes', 'auditions
     return Response(status_code=HTTPStatus.OK)
 
 
+@app.post('/posts', response_model=CreatePostResponse, tags=['Posts'])
+async def create_post(form: CreatePostRequest):
+    async with engine.begin() as connection:
+        query = await connection.execute(
+            text(
+                '''
+                INSERT INTO posts (title, content, image) 
+                VALUES (:title, :content, :image)
+                RETURNING id
+                '''
+            ),
+            dict(title=form.title, content=form.content, image=form.image.encode('utf8'))
+        )
 
+        post_id = query.scalar()
+
+        await connection.execute(
+            text(
+                '''
+                INSERT INTO post_tags (tag, post_id) VALUES (:tag, :pid)
+                '''
+            ),
+            [
+                dict(tag=t, pid=post_id)
+                for t in form.tags
+            ]
+        )
+
+    return CreatePostResponse(post_id=post_id)
+
+
+@app.get('/posts', response_model=GetPostResponse)
+async def all_posts():
+    async with engine.begin() as connection:
+        query = await connection.execute(
+            text(
+                '''
+                SELECT 
+                    posts.id as post_id,
+                    title,
+                    content,
+                    extract(epoch from created_at)::int as created_at,
+                    image,
+                    CASE 
+                        WHEN array_agg(t.tag)::text = '{NULL}' THEN null
+                        ELSE string_agg(t.tag, ',')
+                    END tags
+                FROM posts
+                left join post_tags t on posts.id = t.post_id
+                GROUP BY posts.id, title, content, extract(epoch from created_at), image
+                '''
+            )
+        )
+
+        rows = query.mappings().all()
+
+    return GetPostResponse(posts=[Post(**dict(r)) for r in rows])
 
 
 if __name__ == '__main__':

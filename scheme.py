@@ -37,8 +37,16 @@ class Post(BaseModel):
     created_at: str | int
     title: str
     content: str
-    image: str | bytes
     tags: list[str]
+    image: str | bytes
+
+    def __init__(self, **data):
+        if data['tags'] is None:
+            data['tags'] = []
+        if isinstance(data['tags'], str):
+            data['tags'] = data['tags'].split(',')
+
+        super().__init__(**data)
 
 
 class GetPostResponse(BaseModel):
