@@ -101,7 +101,7 @@ async def get_audio_podcast(podcast_id: int):
 
 
 @app.get('/podcasts/{podcast_id}/image/', tags=['Podcasts'])
-async def get_audio_podcast(podcast_id: int):
+async def get_image_podcast(podcast_id: int):
     async with engine.begin() as connection:
         query = await connection.execute(
             text(
