@@ -29,7 +29,7 @@ engine = create_async_engine(os.environ.get('DATABASE'))
 
 app = FastAPI(
     root_path='/api', description='Medsounds API',
-    docs_url='/api', openapi_url='/api/openapi.json'
+    docs_url='/api/docs', openapi_url='/api/openapi.json'
 )
 
 app.add_middleware(
