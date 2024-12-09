@@ -213,7 +213,7 @@ async def create_post(form: CreatePostRequest):
     return CreatePostResponse(post_id=post_id)
 
 
-@app.get('/posts', response_model=GetPostResponse)
+@app.get('/posts', response_model=GetPostResponse, tags=['Posts'])
 async def all_posts():
     async with engine.begin() as connection:
         query = await connection.execute(
