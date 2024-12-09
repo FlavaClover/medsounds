@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 
 engine = create_async_engine(os.environ.get('DATABASE'))
 
-app = FastAPI(description='Medsounds API', docs_url='/')
+app = FastAPI(
+    root_path='/api', description='Medsounds API',
+    docs_url='/api', openapi_url='/api/openapi.json'
+)
 
 app.add_middleware(
     CORSMiddleware,
