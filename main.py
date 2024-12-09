@@ -8,6 +8,7 @@ import uvicorn
 from mutagen.mp3 import MP3
 from dotenv import load_dotenv
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, UploadFile, Form, HTTPException, Response
 
 from sqlalchemy import text
