@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+alembic
+psycopg
+python-dotenv
+python-multipart
+mutagen
+greenlet
