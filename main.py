@@ -47,10 +47,12 @@ async def read_podcast():
 @app.post('/podcasts', tags=['Podcasts'], response_model=PodcastResponse)
 async def create_podcast(
         podcast: UploadFile,
+        image: UploadFile,
         title: str = Form(),
         description: str = Form(),
 ):
     podcast_bytes = await podcast.read()
+    image_bytes = await image.read()
     audio = MP3(io.BytesIO(podcast_bytes))
 
     try:
@@ -58,15 +60,16 @@ async def create_podcast(
             query = await connection.execute(
                 text(
                     '''
-                    INSERT INTO podcasts (title, description, duration, podcast) 
-                    VALUES (:title, :description, :duration, :podcast)
+                    INSERT INTO podcasts (title, description, duration, podcast, image) 
+                    VALUES (:title, :description, :duration, :podcast, :image)
                     RETURNING id, title, description, duration, likes, auditions
                     '''
                 ),
                 dict(
                     title=title, description=description,
                     duration=int(audio.info.length),
-                    podcast=podcast_bytes
+                    podcast=podcast_bytes,
+                    image=image_bytes
                 )
             )
 
@@ -93,6 +96,25 @@ async def get_audio_podcast(podcast_id: int):
 
     if podcast_bytes:
         return StreamingResponse(io.BytesIO(podcast_bytes), media_type='audio/mp3')
+
+    raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Podcast not found')
+
+
+@app.get('/podcasts/{podcast_id}/image/', tags=['Podcasts'])
+async def get_audio_podcast(podcast_id: int):
+    async with engine.begin() as connection:
+        query = await connection.execute(
+            text(
+                '''
+                SELECT image FROM podcasts WHERE id = :id
+                '''
+            ), dict(id=podcast_id)
+        )
+
+        image_bytes = query.scalar()
+
+    if image_bytes:
+        return StreamingResponse(io.BytesIO(image_bytes), media_type='image/png')
 
     raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Podcast not found')
 
