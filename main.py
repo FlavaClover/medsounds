@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from scheme import PodcastResponse
+from scheme import PodcastResponse, CreatePostRequest, CreatePostResponse, GetPostResponse, Post
 
 load_dotenv()
 logging.basicConfig(
@@ -36,19 +36,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get('/podcasts', tags=['Podcasts'], response_model=list[PodcastResponse])
-async def read_podcast():
+async def all_podcasts():
     async with engine.begin() as connection:
         query = await connection.execute(
             text(
                 '''
-                SELECT id, title, description, duration, likes, auditions FROM podcasts
+                SELECT 
+                    podcasts.id, 
+                    title, 
+                    description, 
+                    duration, 
+                    likes, 
+                    auditions,
+                    
+                    CASE 
+                        WHEN array_agg(t.tag)::text = '{NULL}' THEN null
+                        ELSE string_agg(t.tag, ', ')
+                    END tags
+                FROM podcasts
+                left join tags t on podcasts.id = t.podcast_id
+                GROUP BY podcasts.id, title, description, duration, likes, auditions
                 '''
             )
         )
 
         rows = query.mappings().all()
-
     return [PodcastResponse(**dict(row)) for row in rows]
 
 
@@ -58,6 +72,7 @@ async def create_podcast(
         image: UploadFile,
         title: str = Form(),
         description: str = Form(),
+        tags: list[str] = Form()
 ):
     podcast_bytes = await podcast.read()
     image_bytes = await image.read()
@@ -82,11 +97,24 @@ async def create_podcast(
             )
 
             row = query.mappings().one()
+
+            await connection.execute(
+                text(
+                    '''
+                    INSERT INTO tags (tag, podcast_id) VALUES (:tag, :pid)
+                    '''
+                ),
+                [
+                    dict(tag=t, pid=row['id'])
+                    for t in tags
+                ]
+            )
+
     except IntegrityError as e:
         if 'podcasts_title_key' in str(e):
             raise HTTPException(status_code=HTTPStatus.CONFLICT, detail='Title already exists')
 
-    return PodcastResponse(**dict(row))
+    return PodcastResponse(**dict(row), tags=tags)
 
 
 @app.get('/podcasts/{podcast_id}/audio/', tags=['Podcasts'])
@@ -151,6 +179,9 @@ async def increase_counter(podcast_id: int, counter: Literal['likes', 'auditions
             )
 
     return Response(status_code=HTTPStatus.OK)
+
+
+
 
 
 if __name__ == '__main__':
