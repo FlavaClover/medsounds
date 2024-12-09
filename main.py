@@ -1,13 +1,14 @@
 import os
 import io
 import logging
+from typing import Literal
 from http import HTTPStatus
 
 import uvicorn
 from mutagen.mp3 import MP3
 from dotenv import load_dotenv
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, UploadFile, Form, HTTPException
+from fastapi import FastAPI, UploadFile, Form, HTTPException, Response
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -94,6 +95,32 @@ async def get_audio_podcast(podcast_id: int):
         return StreamingResponse(io.BytesIO(podcast_bytes), media_type='audio/mp3')
 
     raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Podcast not found')
+
+
+@app.post('/podcasts/{podcast_id}/increase/{counter}', tags=['Podcasts'])
+async def increase_counter(podcast_id: int, counter: Literal['likes', 'auditions']):
+    async with engine.begin() as connection:
+        if counter == 'likes':
+            await connection.execute(
+                text(
+                    '''
+                    UPDATE podcasts SET likes = likes + 1
+                    WHERE id = :id
+                    '''
+                ), dict(id=podcast_id)
+            )
+
+        if counter == 'auditions':
+            await connection.execute(
+                text(
+                    '''
+                    UPDATE podcasts SET auditions = auditions + 1
+                    WHERE id = :id
+                    '''
+                ), dict(id=podcast_id)
+            )
+
+    return Response(status_code=HTTPStatus.OK)
 
 
 if __name__ == '__main__':
