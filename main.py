@@ -27,6 +27,13 @@ engine = create_async_engine(os.environ.get('DATABASE'))
 
 app = FastAPI(description='Medsounds API', docs_url='/')
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get('/podcasts', tags=['Podcasts'], response_model=list[PodcastResponse])
 async def read_podcast():
