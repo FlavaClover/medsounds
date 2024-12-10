@@ -3,15 +3,15 @@ import os
 import json
 import uuid
 import logging
-from typing import Literal
 from http import HTTPStatus
+from typing import Literal, Annotated
 
 import uvicorn
 from mutagen.mp3 import MP3
 from dotenv import load_dotenv
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, UploadFile, Form, HTTPException, Response
+from fastapi import FastAPI, UploadFile, Form, HTTPException, Response, Header
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -44,31 +44,51 @@ app.add_middleware(
 
 
 @app.get('/podcasts', tags=['Podcasts'], response_model=list[PodcastResponse])
-async def all_podcasts():
+async def all_podcasts(browser_ident: Annotated[str, Header()]):
     async with engine.begin() as connection:
         query = await connection.execute(
             text(
                 '''
-                SELECT 
-                    podcasts.id, 
-                    title, 
-                    description, 
-                    duration, 
-                    likes, 
-                    auditions,
-                    
-                    CASE 
-                        WHEN array_agg(t.tag)::text = '{NULL}' THEN null
-                        ELSE string_agg(t.tag, ',')
-                    END tags
-                FROM podcasts
-                left join podcast_tags t on podcasts.id = t.podcast_id
-                GROUP BY podcasts.id, title, description, duration, likes, auditions
+                    SELECT 
+                        podcasts.id, 
+                        title, 
+                        description, 
+                        duration,
+                        auditions,
+                        
+                        CASE 
+                            WHEN array_agg(t.tag)::text = '{NULL}' THEN null
+                            ELSE string_agg(t.tag, ',')
+                        END tags
+                    FROM podcasts
+                    left join podcast_tags t on podcasts.id = t.podcast_id
+                    GROUP BY podcasts.id, title, description, duration, auditions
                 '''
             )
         )
 
-        rows = query.mappings().all()
+        rows = [dict(r) for r in query.mappings().all()]
+        for r in rows:
+            query = await connection.execute(
+                text(
+                    '''
+                    SELECT COUNT(*) FROM podcast_likes WHERE podcast_id = :pid
+                    '''
+                ), dict(pid=r['id'])
+            )
+            r['likes'] = query.scalar()
+
+        for r in rows:
+            query = await connection.execute(
+                text(
+                    '''
+                    SELECT COUNT(*) FROM podcast_likes WHERE podcast_id = :pid 
+                                                             AND browser_ident = :bi
+                    '''
+                ), dict(pid=r['id'], bi=browser_ident)
+            )
+            r['liked'] = query.scalar() == 1
+
     return [PodcastResponse(**dict(row)) for row in rows]
 
 
@@ -161,28 +181,49 @@ async def get_image_podcast(podcast_id: int):
     raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Podcast not found')
 
 
-@app.post('/podcasts/{podcast_id}/increase/{counter}', tags=['Podcasts'])
-async def increase_counter(podcast_id: int, counter: Literal['likes', 'auditions']):
+@app.post('/podcasts/{podcast_id}/like-unlike/', tags=['Podcasts'])
+async def like_unlike_podcast(podcast_id: int, browser_ident: Annotated[str, Header()]):
     async with engine.begin() as connection:
-        if counter == 'likes':
+        query = await connection.execute(
+            text(
+                '''
+                SELECT COUNT(*) FROM podcast_likes WHERE podcast_id = :pid 
+                                                         AND browser_ident = :bi
+                '''
+            ), dict(pid=podcast_id, bi=browser_ident)
+        )
+
+        if query.scalar() == 1:
             await connection.execute(
                 text(
                     '''
-                    UPDATE podcasts SET likes = likes + 1
-                    WHERE id = :id
+                    DELETE FROM podcast_likes WHERE podcast_id = :pid AND browser_ident = :bi
                     '''
-                ), dict(id=podcast_id)
+                ), dict(pid=podcast_id, bi=browser_ident)
+            )
+        else:
+            await connection.execute(
+                text(
+                    '''
+                    INSERT INTO podcast_likes (browser_ident, podcast_id) VALUES (:bi, :pid)
+                    '''
+                ), dict(pid=podcast_id, bi=browser_ident)
             )
 
-        if counter == 'auditions':
-            await connection.execute(
-                text(
-                    '''
-                    UPDATE podcasts SET auditions = auditions + 1
-                    WHERE id = :id
-                    '''
-                ), dict(id=podcast_id)
-            )
+    return Response(status_code=HTTPStatus.OK)
+
+
+@app.post('/podcasts/{podcast_id}/auditions', tags=['Podcasts'])
+async def increase_auditions(podcast_id: int):
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                '''
+                UPDATE podcasts SET auditions = auditions + 1
+                WHERE id = :id
+                '''
+            ), dict(id=podcast_id)
+        )
 
     return Response(status_code=HTTPStatus.OK)
 
@@ -232,7 +273,7 @@ async def create_post(
 
 
 @app.get('/posts', response_model=GetPostResponse, tags=['Posts'])
-async def all_posts():
+async def all_posts(browser_ident: Annotated[str, Header()]):
     async with engine.begin() as connection:
         query = await connection.execute(
             text(
@@ -254,9 +295,61 @@ async def all_posts():
             )
         )
 
-        rows = query.mappings().all()
+        rows = [dict(r) for r in query.mappings().all()]
+        for r in rows:
+            query = await connection.execute(
+                text(
+                    '''
+                    SELECT COUNT(*) FROM post_likes WHERE post_id = :pid
+                    '''
+                ), dict(pid=r['post_id'])
+            )
+            r['likes'] = query.scalar()
+
+        for r in rows:
+            query = await connection.execute(
+                text(
+                    '''
+                    SELECT COUNT(*) FROM post_likes WHERE post_id = :pid 
+                                                             AND browser_ident = :bi
+                    '''
+                ), dict(pid=r['post_id'], bi=browser_ident)
+            )
+            r['liked'] = query.scalar() == 1
 
     return GetPostResponse(posts=[Post(**dict(r)) for r in rows])
+
+
+@app.post('/posts/{post_id}/like-unlike/', tags=['Posts'])
+async def like_unlike_post(post_id: int, browser_ident: Annotated[str, Header()]):
+    async with engine.begin() as connection:
+        query = await connection.execute(
+            text(
+                '''
+                SELECT COUNT(*) FROM post_likes WHERE post_id = :pid 
+                                                         AND browser_ident = :bi
+                '''
+            ), dict(pid=post_id, bi=browser_ident)
+        )
+
+        if query.scalar() == 1:
+            await connection.execute(
+                text(
+                    '''
+                    DELETE FROM post_likes WHERE podcast_id = :pid AND browser_ident = :bi
+                    '''
+                ), dict(pid=post_id, bi=browser_ident)
+            )
+        else:
+            await connection.execute(
+                text(
+                    '''
+                    INSERT INTO post_likes (browser_ident, post_id) VALUES (:bi, :pid)
+                    '''
+                ), dict(pid=post_id, bi=browser_ident)
+            )
+
+    return Response(status_code=HTTPStatus.OK)
 
 
 if __name__ == '__main__':

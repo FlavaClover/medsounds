@@ -11,6 +11,7 @@ class PodcastResponse(BaseModel):
     likes: int
     auditions: int
     tags: list[str]
+    liked: bool
 
     def __init__(self, **data):
         if data['tags'] is None:
@@ -39,6 +40,8 @@ class Post(BaseModel):
     content: str
     tags: list[str]
     image: str
+    likes: int
+    liked: bool
 
     def __init__(self, **data):
         if data['tags'] is None:
