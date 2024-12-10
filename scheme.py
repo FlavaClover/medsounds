@@ -3,7 +3,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class PodcastResponse(BaseModel):
+class Podcast(BaseModel):
     id: int
     title: str
     description: str
@@ -12,6 +12,8 @@ class PodcastResponse(BaseModel):
     auditions: int
     tags: list[str]
     liked: bool
+    image: str
+    podcast: str
 
     def __init__(self, **data):
         if data['tags'] is None:
@@ -20,6 +22,11 @@ class PodcastResponse(BaseModel):
             data['tags'] = data['tags'].split(',')
 
         super().__init__(**data)
+
+
+class GetPodcastResponse(BaseModel):
+    podcasts: list[Podcast]
+
 
 
 class CreatePostRequest(BaseModel):

@@ -17,7 +17,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from scheme import PodcastResponse, CreatePostRequest, CreatePostResponse, GetPostResponse, Post
+from scheme import GetPodcastResponse, CreatePostRequest, CreatePostResponse, \
+    GetPostResponse, Post, Podcast
 
 load_dotenv()
 logging.basicConfig(
@@ -27,8 +28,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 engine = create_async_engine(os.environ.get('DATABASE'))
+
 images_dir = os.path.abspath(os.environ.get('IMAGES_DIR', './images'))
 images_dir_for_db = os.path.abspath(os.environ.get('IMAGES_DIR_FOR_DB', './images'))
+
+podcasts_dir = os.path.abspath(os.environ.get('PODCASTS_DIR', './images'))
+podcasts_dir_for_db = os.path.abspath(os.environ.get('PODCASTS_DIR_FOR_DB', './images'))
 
 app = FastAPI(
     description='Medsounds API',
@@ -43,7 +48,7 @@ app.add_middleware(
 )
 
 
-@app.get('/podcasts', tags=['Podcasts'], response_model=list[PodcastResponse])
+@app.get('/podcasts', tags=['Podcasts'], response_model=GetPodcastResponse)
 async def all_podcasts(browser_ident: Annotated[str, Header()]):
     async with engine.begin() as connection:
         query = await connection.execute(
@@ -55,19 +60,21 @@ async def all_podcasts(browser_ident: Annotated[str, Header()]):
                         description, 
                         duration,
                         auditions,
-                        
+                        image,
+                        podcast,
                         CASE 
                             WHEN array_agg(t.tag)::text = '{NULL}' THEN null
                             ELSE string_agg(t.tag, ',')
                         END tags
                     FROM podcasts
                     left join podcast_tags t on podcasts.id = t.podcast_id
-                    GROUP BY podcasts.id, title, description, duration, auditions
+                    GROUP BY podcasts.id, title, description, duration, auditions, image, podcast
                 '''
             )
         )
 
         rows = [dict(r) for r in query.mappings().all()]
+        print(rows)
         for r in rows:
             query = await connection.execute(
                 text(
@@ -89,10 +96,11 @@ async def all_podcasts(browser_ident: Annotated[str, Header()]):
             )
             r['liked'] = query.scalar() == 1
 
-    return [PodcastResponse(**dict(row)) for row in rows]
+
+    return GetPodcastResponse(podcasts=[Podcast(**dict(row)) for row in rows])
 
 
-@app.post('/podcasts', tags=['Podcasts'], response_model=PodcastResponse)
+@app.post('/podcasts', tags=['Podcasts'], response_model=Podcast)
 async def create_podcast(
         podcast: UploadFile,
         image: UploadFile,
@@ -101,7 +109,21 @@ async def create_podcast(
         tags: list[str] = Form()
 ):
     podcast_bytes = await podcast.read()
-    image_bytes = await image.read()
+
+    image_id = uuid.uuid4().hex
+    image_path = images_dir + f'/{image_id}.png'
+    image_path_for_save = images_dir_for_db + f'/{image_id}.png'
+    with open(image_path, 'wb') as file:
+        file.write(await image.read())
+
+
+    podcast_id = uuid.uuid4().hex
+    podcast_path = podcasts_dir + f'/{podcast_id}.png'
+    podcast_path_for_save = podcasts_dir_for_db + f'/{podcast_id}.png'
+    with open(podcast_path, 'wb') as file:
+        file.write(await podcast.read())
+
+
     audio = MP3(io.BytesIO(podcast_bytes))
 
     try:
@@ -111,14 +133,14 @@ async def create_podcast(
                     '''
                     INSERT INTO podcasts (title, description, duration, podcast, image) 
                     VALUES (:title, :description, :duration, :podcast, :image)
-                    RETURNING id, title, description, duration, likes, auditions
+                    RETURNING id, title, description, duration, auditions, image, podcast
                     '''
                 ),
                 dict(
                     title=title, description=description,
                     duration=int(audio.info.length),
-                    podcast=podcast_bytes,
-                    image=image_bytes
+                    podcast=podcast_path_for_save,
+                    image=image_path_for_save
                 )
             )
 
@@ -140,45 +162,7 @@ async def create_podcast(
         if 'podcasts_title_key' in str(e):
             raise HTTPException(status_code=HTTPStatus.CONFLICT, detail='Title already exists')
 
-    return PodcastResponse(**dict(row), tags=tags)
-
-
-@app.get('/podcasts/{podcast_id}/audio/', tags=['Podcasts'])
-async def get_audio_podcast(podcast_id: int):
-    async with engine.begin() as connection:
-        query = await connection.execute(
-            text(
-                '''
-                SELECT podcast FROM podcasts WHERE id = :id
-                '''
-            ), dict(id=podcast_id)
-        )
-
-        podcast_bytes = query.scalar()
-
-    if podcast_bytes:
-        return StreamingResponse(io.BytesIO(podcast_bytes), media_type='audio/mp3')
-
-    raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Podcast not found')
-
-
-@app.get('/podcasts/{podcast_id}/image/', tags=['Podcasts'])
-async def get_image_podcast(podcast_id: int):
-    async with engine.begin() as connection:
-        query = await connection.execute(
-            text(
-                '''
-                SELECT image FROM podcasts WHERE id = :id
-                '''
-            ), dict(id=podcast_id)
-        )
-
-        image_bytes = query.scalar()
-
-    if image_bytes:
-        return StreamingResponse(io.BytesIO(image_bytes), media_type='image/png')
-
-    raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Podcast not found')
+    return Podcast(**dict(row), tags=tags, likes=0, liked=False)
 
 
 @app.post('/podcasts/{podcast_id}/like-unlike/', tags=['Podcasts'])
@@ -228,50 +212,6 @@ async def increase_auditions(podcast_id: int):
     return Response(status_code=HTTPStatus.OK)
 
 
-@app.post('/posts', response_model=CreatePostResponse, tags=['Posts'])
-async def create_post(
-        image: UploadFile,
-        title: str = Form(),
-        content: str = Form(),
-        tags: list[str] = Form(),
-):
-    image_id = uuid.uuid4().hex
-    image_path = images_dir + f'/{image_id}.png'
-
-    with open(image_path, 'wb') as file:
-        file.write(await image.read())
-
-    image_path_for_save = images_dir_for_db + f'/{image_id}.png'
-
-    async with engine.begin() as connection:
-        query = await connection.execute(
-            text(
-                '''
-                INSERT INTO posts (title, content, image) 
-                VALUES (:title, :content, :image)
-                RETURNING id
-                '''
-            ),
-            dict(title=title, content=content, image=image_path_for_save)
-        )
-
-        post_id = query.scalar()
-
-        await connection.execute(
-            text(
-                '''
-                INSERT INTO post_tags (tag, post_id) VALUES (:tag, :pid)
-                '''
-            ),
-            [
-                dict(tag=t, pid=post_id)
-                for t in tags
-            ]
-        )
-
-    return CreatePostResponse(post_id=post_id)
-
-
 @app.get('/posts', response_model=GetPostResponse, tags=['Posts'])
 async def all_posts(browser_ident: Annotated[str, Header()]):
     async with engine.begin() as connection:
@@ -318,6 +258,53 @@ async def all_posts(browser_ident: Annotated[str, Header()]):
             r['liked'] = query.scalar() == 1
 
     return GetPostResponse(posts=[Post(**dict(r)) for r in rows])
+
+
+@app.post('/posts', response_model=CreatePostResponse, tags=['Posts'])
+async def create_post(
+        image: UploadFile,
+        title: str = Form(),
+        content: str = Form(),
+        tags: list[str] = Form(),
+):
+    image_id = uuid.uuid4().hex
+    image_path = images_dir + f'/{image_id}.png'
+
+    with open(image_path, 'wb') as file:
+        file.write(await image.read())
+
+    image_path_for_save = images_dir_for_db + f'/{image_id}.png'
+
+    async with engine.begin() as connection:
+        query = await connection.execute(
+            text(
+                '''
+                INSERT INTO posts (title, content, image) 
+                VALUES (:title, :content, :image)
+                RETURNING id
+                '''
+            ),
+            dict(title=title, content=content, image=image_path_for_save)
+        )
+
+        post_id = query.scalar()
+
+        await connection.execute(
+            text(
+                '''
+                INSERT INTO post_tags (tag, post_id) VALUES (:tag, :pid)
+                '''
+            ),
+            [
+                dict(tag=t, pid=post_id)
+                for t in tags
+            ]
+        )
+
+    return CreatePostResponse(post_id=post_id)
+
+
+
 
 
 @app.post('/posts/{post_id}/like-unlike/', tags=['Posts'])
