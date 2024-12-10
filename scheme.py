@@ -38,7 +38,7 @@ class Post(BaseModel):
     title: str
     content: str
     tags: list[str]
-    image: str | bytes
+    image: str
 
     def __init__(self, **data):
         if data['tags'] is None:

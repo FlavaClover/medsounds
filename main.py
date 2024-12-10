@@ -1,6 +1,7 @@
-import json
-import os
 import io
+import os
+import json
+import uuid
 import logging
 from typing import Literal
 from http import HTTPStatus
@@ -26,10 +27,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 engine = create_async_engine(os.environ.get('DATABASE'))
+images_dir = os.path.abspath(os.environ.get('IMAGES_DIR', './images'))
 
 app = FastAPI(
-    root_path='/api', description='Medsounds API',
-    docs_url='/api/docs', openapi_url='/api/openapi.json'
+    description='Medsounds API',
 )
 
 app.add_middleware(
@@ -186,7 +187,18 @@ async def increase_counter(podcast_id: int, counter: Literal['likes', 'auditions
 
 
 @app.post('/posts', response_model=CreatePostResponse, tags=['Posts'])
-async def create_post(form: CreatePostRequest):
+async def create_post(
+        image: UploadFile,
+        title: str = Form(),
+        content: str = Form(),
+        tags: list[str] = Form(),
+):
+    image_id = uuid.uuid4().hex
+    image_path = images_dir + f'/{image_id}.png'
+
+    with open(image_path, 'wb') as file:
+        file.write(await image.read())
+
     async with engine.begin() as connection:
         query = await connection.execute(
             text(
@@ -196,7 +208,7 @@ async def create_post(form: CreatePostRequest):
                 RETURNING id
                 '''
             ),
-            dict(title=form.title, content=form.content, image=form.image.encode('utf8'))
+            dict(title=title, content=content, image=image_path)
         )
 
         post_id = query.scalar()
@@ -209,7 +221,7 @@ async def create_post(form: CreatePostRequest):
             ),
             [
                 dict(tag=t, pid=post_id)
-                for t in form.tags
+                for t in tags
             ]
         )
 
