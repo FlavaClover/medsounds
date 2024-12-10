@@ -107,7 +107,7 @@ async def create_podcast(
             await connection.execute(
                 text(
                     '''
-                    INSERT INTO tags (tag, podcast_id) VALUES (:tag, :pid)
+                    INSERT INTO podcast_tags (tag, podcast_id) VALUES (:tag, :pid)
                     '''
                 ),
                 [
