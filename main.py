@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 engine = create_async_engine(os.environ.get('DATABASE'))
 images_dir = os.path.abspath(os.environ.get('IMAGES_DIR', './images'))
+images_dir_for_db = os.path.abspath(os.environ.get('IMAGES_DIR_FOR_DB', './images'))
 
 app = FastAPI(
     description='Medsounds API',
@@ -199,6 +200,8 @@ async def create_post(
     with open(image_path, 'wb') as file:
         file.write(await image.read())
 
+    image_path_for_save = images_dir_for_db + f'/{image_id}.png'
+
     async with engine.begin() as connection:
         query = await connection.execute(
             text(
@@ -208,7 +211,7 @@ async def create_post(
                 RETURNING id
                 '''
             ),
-            dict(title=title, content=content, image=image_path)
+            dict(title=title, content=content, image=image_path_for_save)
         )
 
         post_id = query.scalar()
