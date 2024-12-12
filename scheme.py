@@ -49,6 +49,7 @@ class Post(BaseModel):
     image: str
     likes: int
     liked: bool
+    type: str
 
     def __init__(self, **data):
         if data['tags'] is None:

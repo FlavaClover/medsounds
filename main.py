@@ -4,6 +4,7 @@ import json
 import uuid
 import logging
 from http import HTTPStatus
+from datetime import datetime
 from typing import Literal, Annotated
 
 import uvicorn
@@ -46,6 +47,54 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def get_all_posts(browser_ident: str) -> list[Post]:
+    async with engine.begin() as connection:
+        query = await connection.execute(
+            text(
+                '''
+                SELECT 
+                    posts.id as post_id,
+                    title,
+                    content,
+                    extract(epoch from created_at)::int as created_at,
+                    image,
+                    "type",
+                    CASE 
+                        WHEN array_agg(t.tag)::text = '{NULL}' THEN null
+                        ELSE string_agg(t.tag, ',')
+                    END tags
+                FROM posts
+                left join post_tags t on posts.id = t.post_id
+                GROUP BY posts.id, title, content, extract(epoch from created_at), image
+                '''
+            )
+        )
+
+        rows = [dict(r) for r in query.mappings().all()]
+        for r in rows:
+            query = await connection.execute(
+                text(
+                    '''
+                    SELECT COUNT(*) FROM post_likes WHERE post_id = :pid
+                    '''
+                ), dict(pid=r['post_id'])
+            )
+            r['likes'] = query.scalar()
+
+        for r in rows:
+            query = await connection.execute(
+                text(
+                    '''
+                    SELECT COUNT(*) FROM post_likes WHERE post_id = :pid 
+                                                             AND browser_ident = :bi
+                    '''
+                ), dict(pid=r['post_id'], bi=browser_ident)
+            )
+            r['liked'] = query.scalar() == 1
+
+        return [Post(**dict(r)) for r in rows]
 
 
 @app.get('/podcasts', tags=['Podcasts'], response_model=GetPodcastResponse)
@@ -214,50 +263,7 @@ async def increase_auditions(podcast_id: int):
 
 @app.get('/posts', response_model=GetPostResponse, tags=['Posts'])
 async def all_posts(browser_ident: Annotated[str, Header()]):
-    async with engine.begin() as connection:
-        query = await connection.execute(
-            text(
-                '''
-                SELECT 
-                    posts.id as post_id,
-                    title,
-                    content,
-                    extract(epoch from created_at)::int as created_at,
-                    image,
-                    CASE 
-                        WHEN array_agg(t.tag)::text = '{NULL}' THEN null
-                        ELSE string_agg(t.tag, ',')
-                    END tags
-                FROM posts
-                left join post_tags t on posts.id = t.post_id
-                GROUP BY posts.id, title, content, extract(epoch from created_at), image
-                '''
-            )
-        )
-
-        rows = [dict(r) for r in query.mappings().all()]
-        for r in rows:
-            query = await connection.execute(
-                text(
-                    '''
-                    SELECT COUNT(*) FROM post_likes WHERE post_id = :pid
-                    '''
-                ), dict(pid=r['post_id'])
-            )
-            r['likes'] = query.scalar()
-
-        for r in rows:
-            query = await connection.execute(
-                text(
-                    '''
-                    SELECT COUNT(*) FROM post_likes WHERE post_id = :pid 
-                                                             AND browser_ident = :bi
-                    '''
-                ), dict(pid=r['post_id'], bi=browser_ident)
-            )
-            r['liked'] = query.scalar() == 1
-
-    return GetPostResponse(posts=[Post(**dict(r)) for r in rows])
+    return GetPostResponse(posts=await get_all_posts(browser_ident))
 
 
 @app.post('/posts', response_model=CreatePostResponse, tags=['Posts'])
@@ -266,6 +272,7 @@ async def create_post(
         title: str = Form(),
         content: str = Form(),
         tags: list[str] = Form(),
+        type_: str = Form(alias='type_')
 ):
     image_id = uuid.uuid4().hex
     image_path = images_dir + f'/{image_id}.png'
@@ -279,12 +286,12 @@ async def create_post(
         query = await connection.execute(
             text(
                 '''
-                INSERT INTO posts (title, content, image) 
-                VALUES (:title, :content, :image)
+                INSERT INTO posts (title, content, image, type) 
+                VALUES (:title, :content, :image, :type)
                 RETURNING id
                 '''
             ),
-            dict(title=title, content=content, image=image_path_for_save)
+            dict(title=title, content=content, image=image_path_for_save, type=type_)
         )
 
         post_id = query.scalar()
@@ -304,7 +311,16 @@ async def create_post(
     return CreatePostResponse(post_id=post_id)
 
 
+@app.get('/posts/top', tags=['Posts'], response_model=Post)
+async def top_post(browser_ident: Annotated[str, Header()]):
+    month = datetime.now().month
+    posts = await get_all_posts(browser_ident)
+    posts = filter(lambda p: datetime.fromtimestamp(p.created_at).month == month, posts)
+    posts = sorted(posts, key=lambda p: p.likes, reverse=True)
+    if len(posts) == 0:
+        return Response(status_code=HTTPStatus.OK)
 
+    return posts[0]
 
 
 @app.post('/posts/{post_id}/like-unlike/', tags=['Posts'])
