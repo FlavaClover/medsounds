@@ -339,7 +339,7 @@ async def like_unlike_post(post_id: int, browser_ident: Annotated[str, Header()]
             await connection.execute(
                 text(
                     '''
-                    DELETE FROM post_likes WHERE podcast_id = :pid AND browser_ident = :bi
+                    DELETE FROM post_likes WHERE post_id = :pid AND browser_ident = :bi
                     '''
                 ), dict(pid=post_id, bi=browser_ident)
             )
