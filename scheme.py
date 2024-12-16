@@ -14,6 +14,7 @@ class Podcast(BaseModel):
     liked: bool
     image: str
     podcast: str
+    author: str | None
 
     def __init__(self, **data):
         if data['tags'] is None:

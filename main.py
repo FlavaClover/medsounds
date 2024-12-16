@@ -111,6 +111,7 @@ async def all_podcasts(browser_ident: Annotated[str, Header()]):
                         auditions,
                         image,
                         podcast,
+                        author,
                         CASE 
                             WHEN array_agg(t.tag)::text = '{NULL}' THEN null
                             ELSE string_agg(t.tag, ',')
@@ -155,7 +156,8 @@ async def create_podcast(
         image: UploadFile,
         title: str = Form(),
         description: str = Form(),
-        tags: list[str] = Form()
+        tags: list[str] = Form(),
+        author: str = Form(),
 ):
     podcast_bytes = await podcast.read()
 
@@ -179,16 +181,17 @@ async def create_podcast(
             query = await connection.execute(
                 text(
                     '''
-                    INSERT INTO podcasts (title, description, duration, podcast, image) 
-                    VALUES (:title, :description, :duration, :podcast, :image)
-                    RETURNING id, title, description, duration, auditions, image, podcast
+                    INSERT INTO podcasts (title, description, duration, podcast, image, author) 
+                    VALUES (:title, :description, :duration, :podcast, :image, :author)
+                    RETURNING id, title, description, duration, auditions, image, podcast, author
                     '''
                 ),
                 dict(
                     title=title, description=description,
                     duration=int(audio.info.length),
                     podcast=podcast_path_for_save,
-                    image=image_path_for_save
+                    image=image_path_for_save,
+                    author=author,
                 )
             )
 
