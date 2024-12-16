@@ -170,8 +170,7 @@ async def create_podcast(
     podcast_path = podcasts_dir + f'/{podcast_id}.mp3'
     podcast_path_for_save = podcasts_dir_for_db + f'/{podcast_id}.mp3'
     with open(podcast_path, 'wb') as file:
-        file.write(await podcast.read())
-
+        file.write(podcast_bytes)
 
     audio = MP3(io.BytesIO(podcast_bytes))
 
