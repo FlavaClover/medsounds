@@ -167,8 +167,8 @@ async def create_podcast(
 
 
     podcast_id = uuid.uuid4().hex
-    podcast_path = podcasts_dir + f'/{podcast_id}.png'
-    podcast_path_for_save = podcasts_dir_for_db + f'/{podcast_id}.png'
+    podcast_path = podcasts_dir + f'/{podcast_id}.mp3'
+    podcast_path_for_save = podcasts_dir_for_db + f'/{podcast_id}.mp3'
     with open(podcast_path, 'wb') as file:
         file.write(await podcast.read())
 
