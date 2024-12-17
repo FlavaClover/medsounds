@@ -358,6 +358,34 @@ async def like_unlike_post(post_id: int, browser_ident: Annotated[str, Header()]
     return Response(status_code=HTTPStatus.OK)
 
 
+@app.delete('/posts/{post_id}', tags=['Posts'])
+async def delete_post(post_id: int):
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                '''
+                DELETE FROM posts WHERE id = :pid
+                '''
+            ), dict(pid=post_id)
+        )
+
+    return Response(status_code=HTTPStatus.NO_CONTENT)
+
+
+@app.delete('/podcasts/{podcast_id}', tags=['Podcasts'])
+async def delete_post(podcast_id: int):
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                '''
+                DELETE FROM podcasts WHERE id = :pid
+                '''
+            ), dict(pid=podcast_id)
+        )
+
+    return Response(status_code=HTTPStatus.NO_CONTENT)
+
+
 if __name__ == '__main__':
     uvicorn.run(
         'main:app',
