@@ -1,4 +1,5 @@
 from typing import Any
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,7 @@ class Podcast(BaseModel):
     image: str
     podcast: str
     author: str | None
+    created_at: int | str
 
     def __init__(self, **data):
         if data['tags'] is None:

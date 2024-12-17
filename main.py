@@ -112,6 +112,7 @@ async def all_podcasts(browser_ident: Annotated[str, Header()]):
                         image,
                         podcast,
                         author,
+                        extract(epoch from created_at)::int as created_at,
                         CASE 
                             WHEN array_agg(t.tag)::text = '{NULL}' THEN null
                             ELSE string_agg(t.tag, ',')
@@ -124,7 +125,6 @@ async def all_podcasts(browser_ident: Annotated[str, Header()]):
         )
 
         rows = [dict(r) for r in query.mappings().all()]
-        print(rows)
         for r in rows:
             query = await connection.execute(
                 text(
@@ -183,7 +183,8 @@ async def create_podcast(
                     '''
                     INSERT INTO podcasts (title, description, duration, podcast, image, author) 
                     VALUES (:title, :description, :duration, :podcast, :image, :author)
-                    RETURNING id, title, description, duration, auditions, image, podcast, author
+                    RETURNING id, title, description, duration, auditions, image, podcast, author,
+                    extract(epoch from created_at)::int as created_at
                     '''
                 ),
                 dict(
