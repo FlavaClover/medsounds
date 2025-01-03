@@ -321,7 +321,7 @@ async def top_post(browser_ident: Annotated[str, Header()]):
     month_posts = filter(lambda p: datetime.fromtimestamp(p.created_at).month == month, posts)
     month_posts = sorted(month_posts, key=lambda p: p.likes, reverse=True)
     if len(month_posts) == 0:
-        return sorted(month_posts, key=lambda p: p.likes, reverse=True)[0]
+        return sorted(posts, key=lambda p: p.likes, reverse=True)[0]
 
     return posts[0]
 
